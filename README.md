@@ -111,15 +111,9 @@ curl http://localhost:8080/api/v1/gpus
   "gpus": [
     {
       "id": "0",
-      "name": "0",
-      "model": "A100",
-      "host": "server1"
     },
     {
       "id": "1",
-      "name": "1",
-      "model": "A100",
-      "host": "server1"
     }
   ],
   "count": 2

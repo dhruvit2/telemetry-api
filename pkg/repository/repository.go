@@ -87,13 +87,19 @@ func NewTSDBRepository(url, token, org, bucket string, logger *zap.Logger) (*TSD
 
 // GetGPUs retrieves all unique GPU IDs and their details
 func (r *TSDBRepository) GetGPUs(ctx context.Context) ([]GPU, error) {
+	// 1. We look at all data
+	// 2. We filter to our measurement
+	// 3. We group() to merge all internal tables into one
+	// 4. We use distinct() to get one row per unique ID
 	query := fmt.Sprintf(`
-		from(bucket: "%s")
-		|> range(start: -30d)
-		|> filter(fn: (r) => r._measurement == "gpu_metrics")
-		|> group(columns: ["gpu_id", "model_name", "host_name"])
-		|> distinct(column: "gpu_id")
-	`, r.bucket)
+        from(bucket: "%s")
+            |> range(start: 0)
+            |> filter(fn: (r) => r._measurement == "gpu_metrics")
+            |> filter(fn: (r) => r.gpu_id != "unknown")
+            |> group() 
+            |> distinct(column: "gpu_id")
+            |> keep(columns: ["_value"]) 
+    `, r.bucket)
 
 	result, err := r.queryAPI.Query(ctx, query)
 	if err != nil {
@@ -102,40 +108,23 @@ func (r *TSDBRepository) GetGPUs(ctx context.Context) ([]GPU, error) {
 	}
 	defer result.Close()
 
-	gpuMap := make(map[string]*GPU)
+	var gpus []GPU
 
 	for result.Next() {
-		record := result.Record()
-		gpuID := record.ValueByKey("gpu_id")
-		model := record.ValueByKey("model_name")
-		host := record.ValueByKey("host_name")
-
-		if gpuID == nil {
+		// When using distinct(), the result is placed in the "_value" column
+		val := result.Record().Value()
+		if val == nil {
 			continue
 		}
 
-		gpuIDStr := fmt.Sprintf("%v", gpuID)
-		if _, exists := gpuMap[gpuIDStr]; !exists {
-			gpuMap[gpuIDStr] = &GPU{
-				ID:    gpuIDStr,
-				Name:  gpuIDStr,
-				Model: fmt.Sprintf("%v", model),
-				Host:  fmt.Sprintf("%v", host),
-			}
-		}
+		gpuID := fmt.Sprintf("%v", val)
+		gpus = append(gpus, GPU{
+			ID:   gpuID,
+			Name: "GPU " + gpuID,
+		})
 	}
 
-	if err := result.Err(); err != nil {
-		r.logger.Error("query error", zap.Error(err))
-		return nil, err
-	}
-
-	gpus := make([]GPU, 0, len(gpuMap))
-	for _, gpu := range gpuMap {
-		gpus = append(gpus, *gpu)
-	}
-
-	return gpus, nil
+	return gpus, result.Err()
 }
 
 // GetGPUTelemetry retrieves telemetry data for a specific GPU
@@ -149,8 +138,9 @@ func (r *TSDBRepository) GetGPUTelemetryByDateRange(
 	gpuID string,
 	startDate, endDate *time.Time,
 ) ([]Telemetry, error) {
-	// Default to last 24 hours if not specified
-	startTime := "-24h"
+	// 1. Handle Time Logic
+	// If startDate is nil, use 0 (Unix epoch) to get all historical data
+	startTime := "0"
 	endTime := "now()"
 
 	if startDate != nil {
@@ -160,13 +150,16 @@ func (r *TSDBRepository) GetGPUTelemetryByDateRange(
 		endTime = endDate.Format(time.RFC3339)
 	}
 
+	// 2. Build the Query
+	// Added pivot() to group all fields (temp, power, etc.) into a single row per timestamp
 	query := fmt.Sprintf(`
-		from(bucket: "%s")
-		|> range(start: %s, stop: %s)
-		|> filter(fn: (r) => r._measurement == "gpu_metrics")
-		|> filter(fn: (r) => r.gpu_id == "%s")
-		|> sort(columns: ["_time"], desc: false)
-	`, r.bucket, startTime, endTime, gpuID)
+        from(bucket: "%s")
+        |> range(start: %s, stop: %s)
+        |> filter(fn: (r) => r._measurement == "gpu_metrics")
+        |> filter(fn: (r) => r.gpu_id == "%s")
+        |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+        |> sort(columns: ["_time"], desc: false)
+    `, r.bucket, startTime, endTime, gpuID)
 
 	result, err := r.queryAPI.Query(ctx, query)
 	if err != nil {
@@ -180,23 +173,31 @@ func (r *TSDBRepository) GetGPUTelemetryByDateRange(
 	for result.Next() {
 		record := result.Record()
 
-		value := 0.0
-		if v := record.Value(); v != nil {
-			if f, ok := v.(float64); ok {
-				value = f
+		// Helper to safely extract string values
+		getStr := func(key string) string {
+			if v, ok := record.ValueByKey(key).(string); ok {
+				return v
 			}
+			return ""
+		}
+
+		// 3. Extract the numeric value.
+		// Replace "value" with the specific field name from your CSV if it's different (e.g., "usage")
+		metricValue := 0.0
+		if v, ok := record.ValueByKey("value").(float64); ok {
+			metricValue = v
 		}
 
 		telemetry := Telemetry{
 			Timestamp:  record.Time(),
-			MetricName: fmt.Sprintf("%v", record.ValueByKey("metric_name")),
-			GPUId:      fmt.Sprintf("%v", record.ValueByKey("gpu_id")),
-			DeviceID:   fmt.Sprintf("%v", record.ValueByKey("device_id")),
-			UUID:       fmt.Sprintf("%v", record.ValueByKey("uuid")),
-			Model:      fmt.Sprintf("%v", record.ValueByKey("model_name")),
-			Host:       fmt.Sprintf("%v", record.ValueByKey("host_name")),
-			Container:  fmt.Sprintf("%v", record.ValueByKey("container")),
-			Value:      value,
+			MetricName: getStr("_measurement"),
+			GPUId:      getStr("gpu_id"),
+			DeviceID:   getStr("device_id"),
+			UUID:       getStr("uuid"),
+			Model:      getStr("model_name"),
+			Host:       getStr("host_name"),
+			Container:  getStr("container"),
+			Value:      metricValue,
 			Labels:     make(map[string]interface{}),
 		}
 
