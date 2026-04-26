@@ -21,8 +21,6 @@ spec:
     metadata:
       labels:
         {{- include "telemetry-api.selectorLabels" . | nindent 8 }}
-      annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "telemetry-api.serviceAccountName" . }}
       {{- with .Values.affinity }}
@@ -40,12 +38,14 @@ spec:
           containerPort: {{ .Values.service.targetPort }}
           protocol: TCP
         env:
+        {{- with .Values.tsdb }}
         - name: TSDB_URL
-          value: {{ .Values.tsdb.url | quote }}
+          value: {{ .url | quote }}
         - name: TSDB_ORG
-          value: {{ .Values.tsdb.org | quote }}
+          value: {{ .org | quote }}
         - name: TSDB_BUCKET
-          value: {{ .Values.tsdb.bucket | quote }}
+          value: {{ .bucket | quote }}
+        {{- end }}
         {{- range $key, $value := .Values.env }}
         - name: {{ $key }}
           value: {{ $value | quote }}
@@ -57,11 +57,11 @@ spec:
               name: {{ include "telemetry-api.fullname" . }}-secret
               key: tsdb-token
         {{- end }}
-        {{- if .Values.livenessProbe.enabled }}
+        {{- if .Values.livenessProbe }}
         livenessProbe:
           {{- toYaml .Values.livenessProbe | nindent 12 }}
         {{- end }}
-        {{- if .Values.readinessProbe.enabled }}
+        {{- if .Values.readinessProbe }}
         readinessProbe:
           {{- toYaml .Values.readinessProbe | nindent 12 }}
         {{- end }}
