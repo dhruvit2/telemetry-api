@@ -1,0 +1,226 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: telemetry-api-config
+  namespace: telemetry
+data:
+  config.yaml: |
+    # Telemetry API Configuration
+    service:
+      name: telemetry-api
+      port: 8080
+    logging:
+      level: info
+    tsdb:
+      retryAttempts: 3
+      queryTimeout: 30s
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-api
+  namespace: telemetry
+  labels:
+    app: telemetry-api
+    tier: api
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: telemetry-api
+  template:
+    metadata:
+      labels:
+        app: telemetry-api
+        tier: api
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - telemetry-api
+              topologyKey: kubernetes.io/hostname
+      
+      containers:
+      - name: api
+        image: telemetry-api:latest
+        imagePullPolicy: IfNotPresent
+        
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        
+        env:
+        - name: SERVICE_NAME
+          value: "telemetry-api"
+        - name: SERVICE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: PORT
+          value: "8080"
+        - name: LOG_LEVEL
+          value: "info"
+        
+        # TSDB Configuration
+        - name: TSDB_URL
+          value: "http://influxdb-tsdb-influxdb:8086"
+        - name: TSDB_ORG
+          value: "telemetry"
+        - name: TSDB_BUCKET
+          value: "gpu_metrics_raw"
+        - name: TSDB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: influxdb-credentials
+              key: token
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 2
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telemetry-api
+  namespace: telemetry
+  labels:
+    app: telemetry-api
+spec:
+  type: ClusterIP
+  selector:
+    app: telemetry-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: telemetry-api-hpa
+  namespace: telemetry
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: telemetry-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: telemetry-api-pdb
+  namespace: telemetry
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: telemetry-api
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: telemetry-api-network-policy
+  namespace: telemetry
+spec:
+  podSelector:
+    matchLabels:
+      app: telemetry-api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector: {}
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow TSDB access
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: telemetry
+      podSelector:
+        matchLabels:
+          app: influxdb
+    ports:
+    - protocol: TCP
+      port: 8086

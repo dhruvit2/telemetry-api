@@ -1,0 +1,163 @@
+# Telemetry API Helm Chart Values
+
+replicaCount: 2
+
+image:
+  repository: telemetry-api
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: telemetry-api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: telemetry-api-tls
+    #   hosts:
+    #     - telemetry-api.example.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - telemetry-api
+        topologyKey: kubernetes.io/hostname
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Configuration
+config:
+  service:
+    name: telemetry-api
+    port: 8080
+    logLevel: info
+  
+  tsdb:
+    url: http://influxdb-tsdb:8086
+    org: telemetry
+    bucket: gpu_metrics_raw
+    retryAttempts: 3
+    queryTimeout: 30s
+    # token is loaded from secret
+
+# Environment variables
+env:
+  SERVICE_NAME: telemetry-api
+  SERVICE_ID: "1"
+  PORT: "8080"
+  LOG_LEVEL: info
+  TSDB_URL: "http://influxdb-tsdb:8086"
+  TSDB_ORG: telemetry
+  TSDB_BUCKET: gpu_metrics_raw
+
+# Secrets (TSDB token)
+secrets:
+  tsdbToken: ""  # Set this via --set or secrets.yaml
+
+# Network Policy
+networkPolicy:
+  enabled: true
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 8086  # InfluxDB
+    - protocol: TCP
+      port: 53    # DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53    # DNS
+
+# Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+
+# Container Security Context
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
