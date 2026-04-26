@@ -41,7 +41,7 @@ resources:
     memory: 128Mi
 
 autoscaling:
-  enabled: true
+  enabled: false
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
@@ -93,7 +93,7 @@ readinessProbe:
 
 # TSDB Configuration
 tsdb:
-  url: http://tsdb-influxdb-influxdb-tsdb:8086
+  url: http://influxdb-tsdb:8086
   org: telemetry
   bucket: gpu_metrics_raw
 
