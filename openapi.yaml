@@ -1,0 +1,278 @@
+openapi: 3.0.3
+info:
+  title: Telemetry API
+  version: 1.0.0
+  description: |
+    REST API for querying GPU telemetry metrics from InfluxDB TSDB.
+    
+    ## Overview
+    The Telemetry API provides endpoints to retrieve GPU telemetry data stored in InfluxDB.
+    It supports filtering by GPU ID and date ranges for time-series analysis.
+  contact:
+    name: Telemetry Team
+    email: telemetry@example.com
+  license:
+    name: Apache 2.0
+
+servers:
+  - url: http://localhost:8082
+    description: Local development server
+  - url: http://localhost:8080
+    description: Default Kubernetes service
+  - url: https://api.telemetry.example.com
+    description: Production server
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: GPUs
+    description: GPU information and telemetry queries
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags:
+        - Health
+      description: Returns the health status of the API service
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2026-04-26T09:10:17.212843442Z"
+
+  /ready:
+    get:
+      summary: Readiness probe
+      tags:
+        - Health
+      description: Returns the readiness status of the API service
+      operationId: getReady
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                    example: true
+
+  /api/v1/gpus:
+    get:
+      summary: List all GPU IDs
+      tags:
+        - GPUs
+      description: Retrieve a list of all unique GPU IDs that have telemetry data in the system
+      operationId: getGPUs
+      responses:
+        '200':
+          description: Successfully retrieved list of GPUs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  gpus:
+                    type: array
+                    description: Array of available GPU IDs
+                    items:
+                      type: string
+                      example: "0"
+                  count:
+                    type: integer
+                    description: Total number of GPUs
+                    example: 8
+              example:
+                gpus:
+                  - "0"
+                  - "1"
+                  - "2"
+                  - "3"
+                  - "4"
+                  - "5"
+                  - "6"
+                  - "7"
+                count: 8
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/gpus/{id}/telemetry:
+    get:
+      summary: Get telemetry data for a GPU
+      tags:
+        - GPUs
+      description: Retrieve telemetry data for a specific GPU within an optional date range
+      operationId: getGPUTelemetry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: GPU ID (numeric string, e.g., "0", "1", "2")
+          schema:
+            type: string
+            example: "0"
+        - name: start_date
+          in: query
+          required: false
+          description: Start date for telemetry query (RFC3339 format)
+          schema:
+            type: string
+            format: date-time
+            example: "2026-04-26T00:00:00Z"
+        - name: end_date
+          in: query
+          required: false
+          description: End date for telemetry query (RFC3339 format). Defaults to now
+          schema:
+            type: string
+            format: date-time
+            example: "2026-04-26T23:59:59Z"
+      responses:
+        '200':
+          description: Successfully retrieved telemetry data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  gpu_id:
+                    type: string
+                    example: "0"
+                  telemetry:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TelemetryDataPoint'
+                  count:
+                    type: integer
+                    example: 100
+                  start_date:
+                    type: string
+                    format: date-time
+                  end_date:
+                    type: string
+                    format: date-time
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: GPU not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    TelemetryDataPoint:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the telemetry reading
+          example: "2026-04-26T20:42:34Z"
+        metric_name:
+          type: string
+          description: Name of the metric (e.g., DCGM_FI_DEV_GPU_UTIL)
+          example: "DCGM_FI_DEV_GPU_UTIL"
+        gpu_id:
+          type: string
+          description: GPU device ID
+          example: "0"
+        device_id:
+          type: string
+          description: Device identifier
+          example: "nvidia0"
+        uuid:
+          type: string
+          description: GPU UUID
+          example: "GPU-5fd4f087-86f3-7a43-b711-4771313afc50"
+        model:
+          type: string
+          description: GPU model name
+          example: "NVIDIA H100 80GB HBM3"
+        host:
+          type: string
+          description: Hostname where GPU is located
+          example: "mtv5-dgx1-hgpu-031"
+        container:
+          type: string
+          description: Container ID if running in container
+          example: ""
+        value:
+          type: number
+          format: float
+          description: Metric value
+          example: 85.5
+        labels:
+          type: object
+          description: Additional labels/tags associated with the metric
+          additionalProperties: true
+          example:
+            DCGM_FI_DRIVER_VERSION: "535.129.03"
+            job: "dgx_dcgm_exporter"
+            instance: "mtv5-dgx1-hgpu-031:9400"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "failed to retrieve GPUs: connection refused"
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp when error occurred
+          example: "2026-04-26T09:10:17.212843442Z"
+        code:
+          type: integer
+          description: HTTP status code
+          example: 500
+
+    GPU:
+      type: object
+      properties:
+        id:
+          type: string
+          description: GPU ID
+          example: "0"
+        name:
+          type: string
+          description: GPU name
+          example: "nvidia0"
+        model:
+          type: string
+          description: GPU model
+          example: "NVIDIA H100 80GB HBM3"
+        host:
+          type: string
+          description: Hostname
+          example: "mtv5-dgx1-hgpu-031"

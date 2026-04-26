@@ -40,6 +40,12 @@ spec:
           containerPort: {{ .Values.service.targetPort }}
           protocol: TCP
         env:
+        - name: TSDB_URL
+          value: {{ .Values.tsdb.url | quote }}
+        - name: TSDB_ORG
+          value: {{ .Values.tsdb.org | quote }}
+        - name: TSDB_BUCKET
+          value: {{ .Values.tsdb.bucket | quote }}
         {{- range $key, $value := .Values.env }}
         - name: {{ $key }}
           value: {{ $value | quote }}

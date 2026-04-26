@@ -83,6 +83,50 @@ readinessProbe:
   httpGet:
     path: /ready
     port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# TSDB Configuration
+tsdb:
+  url: http://influxdb:8086
+  org: telemetry
+  bucket: gpu_metrics_raw
+
+# Secrets for TSDB
+secrets:
+  # InfluxDB token - REQUIRED
+  # Generate via: kubectl create secret generic telemetry-api-secret --from-literal=tsdb-token=<token>
+  tsdbToken: 7h2UjNBHN7ApaRrwz49uyRi6sySH-NaICaNLz4ZP5ROt2Jf8lDfJqtyU_e-45STGcnvD71x5sa9dRlgb9H2kKg==
+  
+# Environment variables
+env:
+  LOG_LEVEL: "info"
+  PORT: "8080"
+  SERVICE_NAME: "telemetry-api"
+  SERVICE_ID: "1"
+
+# Swagger/OpenAPI Documentation
+swagger:
+  enabled: true
+  path: /docs
+  
+# Security Context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /ready
+    port: http
   initialDelaySeconds: 10
   periodSeconds: 10
   timeoutSeconds: 5
@@ -115,7 +159,7 @@ env:
 
 # Secrets (TSDB token)
 secrets:
-  tsdbToken: ""  # Set this via --set or secrets.yaml
+  tsdbToken: "7h2UjNBHN7ApaRrwz49uyRi6sySH-NaICaNLz4ZP5ROt2Jf8lDfJqtyU_e-45STGcnvD71x5sa9dRlgb9H2kKg=="  # Set this via --set or secrets.yaml
 
 # Network Policy
 networkPolicy:
