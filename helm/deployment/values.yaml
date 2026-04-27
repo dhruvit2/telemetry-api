@@ -1,10 +1,10 @@
 # Telemetry API Helm Chart Values
 
-replicaCount: 2
+replicaCount: 1
 
 image:
   repository: dhruvit2/telemetry-api
-  tag: "1.0.0"
+  tag: "2.0.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -106,7 +106,7 @@ env:
 
 # Secrets for TSDB
 secrets:
-  tsdbToken: "7h2UjNBHN7ApaRrwz49uyRi6sySH-NaICaNLz4ZP5ROt2Jf8lDfJqtyU_e-45STGcnvD71x5sa9dRlgb9H2kKg=="
+  tsdbToken: "qJVu2ArhT1nxIcxa12tkCUORK3sfbCo-mfdacngi8OALe-F_Le29Ufb5iVQBFOa5uZrU6kCjDXCa8S5w_lzquQ=="
 
 # Security Context
 securityContext:

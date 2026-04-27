@@ -25,7 +25,7 @@ func LoadConfig() *Config {
 	return &Config{
 		ServiceName: getEnv("SERVICE_NAME", "telemetry-api"),
 		ServiceID:   getEnv("SERVICE_ID", "1"),
-		Port:        getEnvInt("PORT", 8082),
+		Port:        getEnvInt("PORT", 8080),
 		LogLevel:    getEnv("LOG_LEVEL", "info"),
 
 		TSDBURL:    getEnv("TSDB_URL", "http://localhost:8086"),
